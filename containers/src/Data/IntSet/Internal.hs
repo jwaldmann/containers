@@ -1052,10 +1052,22 @@ foldlFB = foldl
 
 -- | /O(n*min(n,W))/. Create a set from a list of integers.
 fromList :: [Key] -> IntSet
-fromList xs
-  = Foldable.foldl' ins empty xs
+fromList [] = empty
+fromList xs = mergeAll ( mergePairs_mapSingleton xs )
   where
-    ins t x  = insert x t
+    mergeAll [x] = x
+    mergeAll xs  = mergeAll (mergePairs xs)
+
+    mergePairs (a:b:xs) = let !x = union a b
+                          in x : mergePairs xs
+    mergePairs xs       = xs
+
+    --  fused version of  mergePairs . map singleton
+    mergePairs_mapSingleton []   = []
+    mergePairs_mapSingleton [a] = [singleton a]
+    mergePairs_mapSingleton (a:b:xs) =
+      let !x = insert a (singleton b)
+      in x : mergePairs_mapSingleton xs
 
 -- | /O(n)/. Build a set from an ascending list of elements.
 -- /The precondition (input list is ascending) is not checked./

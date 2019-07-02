@@ -12,7 +12,9 @@ main = do
     let s = S.fromAscList elems :: S.IntSet
         s_even = S.fromAscList elems_even :: S.IntSet
         s_odd = S.fromAscList elems_odd :: S.IntSet
-    evaluate $ rnf [s, s_even, s_odd]
+        s_thin = S.fromAscList elems_thin :: S.IntSet
+        s_random = S.fromList elems_random :: S.IntSet
+    evaluate $ rnf [s, s_even, s_odd, s_thin, s_random]
     defaultMain
         [ bench "member" $ whnf (member elems) s
         , bench "insert" $ whnf (ins elems) S.empty
@@ -30,7 +32,16 @@ main = do
         , bench "difference" $ whnf (S.difference s) s_even
         , bench "intersection" $ whnf (S.intersection s) s_even
         , bench "fromList" $ whnf S.fromList elems
+        , bench "fromList (even)" $ whnf S.fromList elems_even
+        , bench "fromList (odd)" $ whnf S.fromList elems_odd
+        , bench "fromList (thin)" $ whnf S.fromList elems_thin
+        , bench "fromList (random)" $ whnf S.fromList elems_random
+
         , bench "fromAscList" $ whnf S.fromAscList elems
+        , bench "fromAscList (even)" $ whnf S.fromAscList elems_even
+        , bench "fromAscList (odd)" $ whnf S.fromAscList elems_odd
+        , bench "fromAscList (thin)" $ whnf S.fromAscList elems_thin
+
         , bench "fromDistinctAscList" $ whnf S.fromDistinctAscList elems
         , bench "disjoint:false" $ whnf (S.disjoint s) s_even
         , bench "disjoint:true" $ whnf (S.disjoint s_odd) s_even
@@ -41,6 +52,9 @@ main = do
     elems = [1..2^12]
     elems_even = [2,4..2^12]
     elems_odd = [1,3..2^12]
+    elems_thin = map (^2) elems
+    lcg x = mod (1664525 * x + 1013904223) (2^32)
+    elems_random = take (2^12) $ iterate lcg 0
 
 member :: [Int] -> S.IntSet -> Int
 member xs s = foldl' (\n x -> if S.member x s then n + 1 else n) 0 xs
