@@ -3,17 +3,23 @@ module Main where
 
 import Control.DeepSeq (rnf)
 import Control.Exception (evaluate)
-import Gauge (bench, defaultMain, whnf)
+import Gauge (bench, bgroup, defaultMain, whnf)
 import Data.List (foldl')
 import qualified Data.IntMap as M
 import qualified Data.IntMap.Strict as MS
 import Data.Maybe (fromMaybe)
 import Prelude hiding (lookup)
 
-main = do
+main = defaultMain
+  [ main_for "contiguous" [1..2^12] [1..2^12]
+  ]
+
+main_for name keys values = 
     let m = M.fromAscList elems :: M.IntMap Int
-    evaluate $ rnf [m]
-    defaultMain
+        elems = zip keys values
+        sum k v1 v2 = k + v1 + v2
+        consPair k v xs = (k, v) : xs
+    in  bgroup name $ 
         [ bench "lookup" $ whnf (lookup keys) m
         , bench "insert" $ whnf (ins elems) M.empty
         , bench "insertWith empty" $ whnf (insWith elems) M.empty
@@ -44,11 +50,6 @@ main = do
                     (M.fromList $ zip [1..10] [1..10])
         ]
   where
-    elems = zip keys values
-    keys = [1..2^12]
-    values = [1..2^12]
-    sum k v1 v2 = k + v1 + v2
-    consPair k v xs = (k, v) : xs
 
 add3 :: Int -> Int -> Int -> Int
 add3 x y z = x + y + z
