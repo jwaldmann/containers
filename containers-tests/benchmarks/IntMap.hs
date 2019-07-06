@@ -28,8 +28,12 @@ main = do
       ]
     ]
 
+-- | lazy list of pseudo-random numbers from linear congruential generator,
+-- coefficients taken from "the BSD rand generator", as cited in
+-- https://www.gnu.org/software/gsl/doc/html/rng.html#c.gsl_rng_rand
+random_from :: Int -> [Int]
 random_from s =
-  iterate (\x -> mod (1664525 *x + 1013904223) (2^32)) s
+  iterate (\x -> mod (1103515245 * x + 12345) (2^31)) s
 
 bulk ::  [(String, [Int], [Int])] -> Benchmark
 bulk nkks = bgroup "bulk" $
