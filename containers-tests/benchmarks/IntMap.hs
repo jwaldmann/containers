@@ -23,7 +23,7 @@ main = do
       	]
       , pointwise
       	[ ("contiguous", [1..2^e])
-      	, ("interleaved", [0..2^e-1] >>= \ x -> [x, x + 2^e ])
+      	, ("interleaved", [0..2^(e-1)-1] >>= \ x -> [x, x + 2^(e-1) ])
       	, ("sparse", map (^2) [1..2^e] )
       	, ("random", take (2^e) $ random_from 1 )
       	]
