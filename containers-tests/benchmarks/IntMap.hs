@@ -11,18 +11,20 @@ import Data.Maybe (fromMaybe)
 import Prelude hiding (lookup)
 
 main = do
+  let e = 16
   defaultMain
-    [ bulk $
-      [ ("contiguous/overlapping", [1..2^12], [1..2^12])
-      , ("contiguous/disjoint"   , [1,3..2^13], [2,4..2^13])
-      , ("sparse/overlapping"    , map (^2) [1..2^12], map (^2) [1..2^12])
-      , ("sparse/disjoint"   , map (^2) [1,3..2^13], map (^2) [2,4..2^13])
-      , ("random", take (2^12) $ random_from 1 , take (2^12) $ random_from 2 )
-      ] >> []
+    [ bulk
+      [ ("contiguous/overlapping", [1..2^e], [1..2^e])
+      , ("contiguous/disjoint"   , [1,3..2^(e+1)], [2,4..2^(e+1)])
+      , ("sparse/overlapping"    , map (^2) [1..2^e], map (^2) [1..2^e])
+      , ("sparse/disjoint"   , map (^2) [1,3..2^(e+1)], map (^2) [2,4..2^(e+1)])
+      , ("random", take (2^e) $ random_from 1 , take (2^e) $ random_from 2 )
+      ]
     , pointwise
-      [ ("contiguous", [1..2^12])
-      , ("sparse", map (^2) [1..2^12] )
-      , ("random", take (2^12) $ random_from 1 )
+      [ ("contiguous", [1..2^e])
+      , ("interleaved", [0..2^e-1] >>= \ x -> [x, x + 2^e ])
+      , ("sparse", map (^2) [1..2^e] )
+      , ("random", take (2^e) $ random_from 1 )
       ]
     ]
 
