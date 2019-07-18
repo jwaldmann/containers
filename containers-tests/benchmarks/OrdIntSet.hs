@@ -14,22 +14,18 @@ import qualified Data.Foldable as F
 import Gauge (bgroup, bench, defaultMain, whnf)
 
 main = do
-  let sigma = 3
   defaultMain
-    [ bgroup "det" $ do
-        n <- takeWhile (<= 10^6) $ iterate (*10) 1
-        return $ bgroup ("n=" <> show n) $ do
-          let c = 10 ; m = c * n
-          return $ bench ("m=" <> show c <> "*n") 
-            $ whnf (M.size . det0 sigma)
-            $ random_nfa sigma (State n) m 42
+    [ bgroup "det/hard" $ do
+        n <- [1 .. 20]
+        return $ bench ("n=" <> show n)
+            $ whnf (M.size . det0 2) $ hard_nfa n
     ]
 
 
 -- evaluate this expression while typing:
 -- ghcid -W -Ttest benchmarks/OrdIntSet.hs 
 test = do
-  let a = random_nfa 2 2 2 42
+  let a = hard_nfa 10
   print_nfa a
   print_dfa $ det0 2 a
 
@@ -84,26 +80,10 @@ nfa ts = IM.fromListWith ( IM.unionWith IS.union )
   $ map (\(State p,Sigma s,State q) ->
            (p, IM.singleton s (IS.singleton q))) ts
 
-random_nfa
-  :: Sigma -- ^ size of alphabet
-  -> State -- ^ number of states
-  -> Int -- ^ number of edges
-  -> Seed
-  -> NFA
-random_nfa (Sigma a) (State n) m s = nfa
-  $ map (\ (x,y,z) ->
-           (State $ mod x n, Sigma $ mod y a, State $ mod z n))
-  $ take m $ triples $ random_ints s
+-- | for the language Sigma^* 1 Sigma^{n-2}  where Sigma={0,1}.
+-- this NFA has  n  states. DFA has 2^(n-1) states
+-- since it needs to remember the last n characters.
+hard_nfa n = nfa
+  $ [ (0, 0, 0), (0,1,0), (0, 1, 1) ]
+  <> do k <- [1 .. State n - 2] ; c <- [0,1] ; return (k,c,k+1)
 
-triples :: [a] -> [(a,a,a)]
-triples (x:y:z:later) = (x,y,z) : triples later
-
-
-newtype Seed = Seed Int deriving Num
-
--- | lazy list of pseudo-random numbers from linear congruential generator,
--- coefficients taken from "the BSD rand generator", as cited in
--- https://www.gnu.org/software/gsl/doc/html/rng.html#c.gsl_rng_rand
-random_ints :: Seed -> [Int]
-random_ints (Seed s) =
-  iterate (\x -> mod (1103515245 * x + 12345) (2^31)) s
