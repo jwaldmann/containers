@@ -95,6 +95,17 @@ library
 -- B E N C H M A R K I N G --
 -----------------------------
 
+benchmark ord-intset-benchmarks
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: benchmarks
+  main-is:        OrdIntSet.hs
+  ghc-options:    -O2
+  build-depends:
+      base              >=4.6     && <5
+    , containers-tests
+    , deepseq           >=1.1.0.0 && <1.5
+    , gauge             >=0.2.3   && <0.3
+
 benchmark intmap-benchmarks
   type:           exitcode-stdio-1.0
   hs-source-dirs: benchmarks

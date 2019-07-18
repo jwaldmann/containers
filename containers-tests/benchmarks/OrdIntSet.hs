@@ -17,11 +17,11 @@ main = do
   let sigma = 3
   defaultMain
     [ bgroup "det" $ do
-        n <- takeWhile (< 10^3) $ iterate (*2) 1
+        n <- takeWhile (<= 10^6) $ iterate (*10) 1
         return $ bgroup ("n=" <> show n) $ do
-          Sigma c <- [1 .. 2*sigma] ; let m = c * n
+          let c = 10 ; m = c * n
           return $ bench ("m=" <> show c <> "*n") 
-            $ whnf (det0 sigma)
+            $ whnf (M.size . det0 sigma)
             $ random_nfa sigma (State n) m 42
     ]
 
@@ -29,7 +29,7 @@ main = do
 -- evaluate this expression while typing:
 -- ghcid -W -Ttest benchmarks/OrdIntSet.hs 
 test = do
-  let a = random_nfa 2 5 10 41
+  let a = random_nfa 2 2 2 42
   print_nfa a
   print_dfa $ det0 2 a
 
