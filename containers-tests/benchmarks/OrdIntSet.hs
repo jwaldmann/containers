@@ -64,30 +64,23 @@ det sigma initial aut =
   let get :: State -> Sigma -> IntSet
       get (State p) (Sigma s) = IM.findWithDefault IS.empty p
               $ IM.findWithDefault IM.empty s aut
-      go :: S.Set IntSet -> S.Set IntSet -> [(IntSet, [(Sigma, IntSet)])]
-      go !done !todo = case S.minView todo of
-        Nothing -> []
+      go :: DFA -> S.Set IntSet -> S.Set IntSet -> DFA
+      go !accu !done !todo = case S.minView todo of
+        Nothing -> accu
         Just (t, odo) ->
           if S.member t done
-          then go done odo
+          then go accu done odo
           else let ts = do
                      s <- [0 .. sigma-1]
                      let next :: IntSet
                          next =
                            -- IS.foldMap (\p -> get (State p) s) t
                            foldMap (\p -> get (State p) s) $ IS.toList t
-                     return (s, next)
-               in  (t, ts) : go 
+                     return (t, s, next)
+               in  go (union_dfa (dfa ts) accu)
                       (S.insert t done)
-                      (foldl' (\ o (_,q) -> S.insert q o) odo ts)
-      collect xs = IM.fromList $ do
-        s <- [0 .. sigma-1]
-        return (fromEnum s, M.fromList $ do
-                   (t, ts) <- xs
-                   (s', q) <- ts
-                   guard $ s == s'
-                   return (t, q) )
-  in collect $ go S.empty $ S.singleton initial  
+                      (foldl' (\ o (_,_,q) -> S.insert q o) odo ts)
+  in go IM.empty S.empty $ S.singleton initial  
   
 
 det0 :: Sigma -> NFA -> DFA
