@@ -13,6 +13,7 @@ import qualified Data.Map.Strict as M
 import qualified Data.Foldable as F
 import Data.List (foldl')
 import Data.Monoid (Sum(..))
+import Control.Monad (guard)
 import Gauge (bgroup, bench, defaultMain, whnf)
 
 main = do
@@ -45,7 +46,7 @@ print_dfa a = mapM_ putStrLn $ do
   
 
 newtype State = State Int deriving (Num, Enum)
-newtype Sigma = Sigma Int deriving (Num, Enum)
+newtype Sigma = Sigma Int deriving (Num, Enum, Eq)
 
 -- | just the transistion system,
 -- we ignore initial and final states
@@ -63,24 +64,30 @@ det sigma initial aut =
   let get :: State -> Sigma -> IntSet
       get (State p) (Sigma s) = IM.findWithDefault IS.empty p
               $ IM.findWithDefault IM.empty s aut
-      go :: DFA -> S.Set IntSet -> S.Set IntSet -> DFA
-      go !accu !done !todo = case S.minView todo of
-        Nothing -> accu
+      go :: S.Set IntSet -> S.Set IntSet -> [(IntSet, [(Sigma, IntSet)])]
+      go !done !todo = case S.minView todo of
+        Nothing -> []
         Just (t, odo) ->
           if S.member t done
-          then go accu done odo
-          else let ts :: DFA
-                   ts = dfa $ do
+          then go done odo
+          else let ts = do
                      s <- [0 .. sigma-1]
                      let next :: IntSet
                          next =
                            -- IS.foldMap (\p -> get (State p) s) t
                            foldMap (\p -> get (State p) s) $ IS.toList t
-                     return (t, s, next)
-               in  go (IM.unionWith (M.unionWith (error "WAT")) ts accu)
+                     return (s, next)
+               in  (t, ts) : go 
                       (S.insert t done)
-                      (foldl' (flip S.insert) odo $ (IM.elems ts >>= M.elems))
-  in  go IM.empty S.empty $ S.singleton initial  
+                      (foldl' (\ o (_,q) -> S.insert q o) odo ts)
+      collect xs = IM.fromList $ do
+        s <- [0 .. sigma-1]
+        return (fromEnum s, M.fromList $ do
+                   (t, ts) <- xs
+                   (s', q) <- ts
+                   guard $ s == s'
+                   return (t, q) )
+  in collect $ go S.empty $ S.singleton initial  
   
 
 det0 :: Sigma -> NFA -> DFA
@@ -97,6 +104,8 @@ dfa :: [(IntSet, Sigma, IntSet)] -> DFA
 dfa ts = IM.fromListWith ( M.unionWith ( error "WAT") )
   $ map (\( p, Sigma s, q) ->
            (s, M.singleton p q)) ts
+
+union_dfa a b = IM.unionWith (M.unionWith (error "WAT")) a b
 
 -- | for the language Sigma^* 1 Sigma^{n-2}  where Sigma={0,1}.
 -- this NFA has  n  states. DFA has 2^(n-1) states
