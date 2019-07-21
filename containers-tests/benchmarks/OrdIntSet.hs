@@ -1,5 +1,5 @@
 {-# language
-  GeneralizedNewtypeDeriving, TypeFamilies, BangPatterns
+  GeneralizedNewtypeDeriving, TypeFamilies, BangPatterns, StandaloneDeriving
 #-}
 
 module Main where
@@ -211,18 +211,44 @@ newtype Sigma = Sigma Int deriving (Num, Enum, Eq)
 type NFA = IntMap (IntMap IntSet)
 -- ^ Sigma -> State -> Set State
 
-type DFA = IntMap (M.Map IntSet IntSet)
+type DFA = IntMap (M.Map MyIntSet MyIntSet)
 -- ^ Sigma -> Set State -> Set State
 
 size :: DFA -> Int
 size = getSum . foldMap (Sum . length)
 
+{-  performance:
+
+# standard instance Ord IntSet
+
+det/hard/n=16                            time                 521.2 ms  
+det/hard/n=17                            time                 1.192 s   
+det/hard/n=18                            time                 2.613 s   
+det/hard/n=19                            time                 6.302 s   
+det/hard/n=20                            time                 13.79 s   
+
+# using function `cis` defined here
+
+det/hard/n=16                            time                 167.6 ms  
+det/hard/n=17                            time                 359.1 ms  
+det/hard/n=18                            time                 819.8 ms  
+det/hard/n=19                            time                 1.844 s   
+det/hard/n=20                            time                 4.091 s   
+
+-}
+
+newtype MyIntSet = My { ym :: IntSet } deriving (Semigroup, Monoid, Show, Eq)
+
+-- deriving instance Ord MyIntSet
+instance Ord MyIntSet where
+  compare (My a) (My b) = cis a b
+
 det :: Sigma -> IntSet -> NFA -> DFA
 det sigma initial aut =
-  let get :: State -> Sigma -> IntSet
-      get (State p) (Sigma s) = IM.findWithDefault IS.empty p
+  let get :: State -> Sigma -> MyIntSet
+      get (State p) (Sigma s) = My $ IM.findWithDefault IS.empty p
               $ IM.findWithDefault IM.empty s aut
-      go :: DFA -> S.Set IntSet -> S.Set IntSet -> DFA
+      go :: DFA -> S.Set MyIntSet -> S.Set MyIntSet -> DFA
       go !accu !done !todo = case S.minView todo of
         Nothing -> accu
         Just (t, odo) ->
@@ -230,15 +256,15 @@ det sigma initial aut =
           then go accu done odo
           else let ts = do
                      s <- [0 .. sigma-1]
-                     let next :: IntSet
+                     let next :: MyIntSet
                          next =
                            -- IS.foldMap (\p -> get (State p) s) t
-                           foldMap (\p -> get (State p) s) $ IS.toList t
+                           foldMap (\p -> get (State p) s) $ IS.toList $ ym t
                      return (t, s, next)
                in  go (union_dfa (dfa ts) accu)
                       (S.insert t done)
                       (Data.List.foldl' (\ o (_,_,q) -> S.insert q o) odo ts)
-  in go IM.empty S.empty $ S.singleton initial  
+  in go IM.empty S.empty $ S.singleton $ My initial  
   
 
 det0 :: Sigma -> NFA -> DFA
@@ -251,7 +277,7 @@ nfa ts = IM.fromListWith ( IM.unionWith IS.union )
   $ Prelude.map (\(State p,Sigma s,State q) ->
            (s, IM.singleton p (IS.singleton q))) ts
 
-dfa :: [(IntSet, Sigma, IntSet)] -> DFA
+dfa :: [(MyIntSet, Sigma, MyIntSet)] -> DFA
 dfa ts = IM.fromListWith ( M.unionWith ( error "WAT") )
   $ Prelude.map (\( p, Sigma s, q) ->
            (s, M.singleton p q)) ts
