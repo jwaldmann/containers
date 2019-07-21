@@ -13,6 +13,8 @@ import qualified Data.Set as S
 import qualified Data.Map.Strict as M
 import qualified Data.Foldable as F
 import qualified Data.List
+import Data.List (mapAccumL)
+import Data.Maybe (catMaybes)
 import Data.Bits (shift, complement, (.&.), (.|.), xor, bit, countLeadingZeros)
 import Utils.Containers.Internal.BitUtil
 import Data.Monoid (Sum(..))
@@ -30,39 +32,30 @@ main = do
     ]
 
 test2 = do
-  print $ toList (Tip (-1024) 11)
-
-  let t1 = fromList [0]
-      t2@(Bin p m l r) = fromList [-1,0]
-  print (p,m,l,r)
-  print $ relate t1 t2
-  print $ relate t1 l
-
-  putStrLn "compare==cis (Tip, Tip)"
-  checkFor (10^5) $ \ a b -> a == 0 || b == 0 ||
-    let p = 2^12; q = negate $ 2^12
-    in compare (Tip p a) (Tip q b) == cis (Tip p a) (Tip q b)
-
-  forM_ [0, 2^10, negate $ 2^10 ] $ \ p -> do
-    putStrLn $ "compare==cis (Tip (" <> show p <> ") *)"
-    checkFor (10^5) $ \ a b ->
-      compare (Tip p a) (Tip p b) == cis (Tip p a) (Tip p b)
+  putStrLn "combine"       ; checkFor (10^6) prop_combine
+  putStrLn "combine_left"  ; checkFor (10^6) prop_combine_left
+  putStrLn "combine_right" ; checkFor (10^6) prop_combine_right
 
   putStrLn "compare==cis"
   checkFor (10^6) $ \ a b -> compare a b == cis a b
 
 instance Listable IntSet where
-  tiers = mapT (IS.fromList {- . Prelude.map unNat -}  ) tiers
+  tiers = mapT IS.fromList tiers
 
 -- | detailed outcome of lexicographic comparison of lists.
--- w.r.t. Ordering, there are two extra cases.
+-- w.r.t. Ordering, there are two extra cases,
+-- since (++) is not monotonic w.r.t. lex. order on lists
+-- (which is used by definition):
+-- consider comparison of  (Bin [0,3,4] [ 6] ) to  (Bin [0,3] [7] )
+-- where [0,3,4] > [0,3]  but [0,3,4,6] < [0,3,7].
+
 data Relation
   = Less  -- ^ holds for [0,3,4] [0,3,5,1]
   | Prefix -- ^ holds for [0,3,4] [0,3,4,5]
   | Equals -- ^  holds for [0,3,4] [0,3,4]
   | FlipPrefix -- ^ holds for [0,3,4] [0,3]
   | Greater -- ^ holds for [0,3,4] [0,2,5]
-  deriving Show
+  deriving (Show, Eq)
 
 -- | compare IntSet
 cis :: IntSet -> IntSet -> Ordering
@@ -73,6 +66,18 @@ cis a b = case relate a b of
   FlipPrefix -> GT
   Greater -> GT
 
+-- The following gets complicated since integers are
+-- effectively handled (in the tree) by their binary representation:
+-- if a bit is zero, the left branch is taken.
+-- This also holds for the sign bit (the MSB),
+-- so negative numbers are in the right subtree:
+-- after    Bin p m l r = fromList [-1,0]
+-- we have  l = fromList [0], r = fromList [-1]
+
+-- | does the set contain both numbers >= 0 and numbers < 0 ?
+mixed :: IntSet -> Bool
+mixed (Bin p m l r) = m == (2 ^( wordSize -1 ))
+
 relate :: IntSet -> IntSet -> Relation
 relate Nil Nil = Equals
 relate Nil t2 = Prefix
@@ -82,18 +87,30 @@ relate (Tip p1 bm1) (Tip p2 bm2) = case compare p1 p2 of
   EQ -> relateBM bm1 bm2
   GT -> Greater
 relate t1@(Bin p1 m1 l1 r1) t2@(Bin p2 m2 l2 r2)
+  | mixed t1 && mixed t2 = combine (relate r1 r2) (relate l1 l2)
+  | mixed t1 = combine_left (relate r1 t2)
+  | mixed t2 = combine_right (relate t1 r2)
   | p1 == p2 = combine (relate l1 l2) (relate r1 r2)
-  | shorter m1 m2 = combine (relate l1 t2) FlipPrefix
-  | shorter m2 m1 = combine (relate t1 l2) Prefix
-  | otherwise = case compare p1 p2 of
-      LT -> Less
-      GT -> Greater
+  | shorter m1 m2 = combine_left (relate l1 t2)
+  | shorter m2 m1 = combine_right (relate t1 l2)
+  | otherwise = case compare p1 p2 of LT -> Less ; GT -> Greater
 relate t1@(Bin p1 m1 l1 r1) t2@(Tip p2 bm2)
-  = combine (relate l1 t2) FlipPrefix
-relate t1@(Tip p1 bm1) t2@(Bin p2 m2 l2 r2) = case compare p1 p2 of
-  LT -> Less
-  EQ -> combine (relate t1 l2) Prefix
-  GT -> Greater
+  | mixed t1 = combine_left (relate r1 t2)
+  | otherwise = case compare p1 p2 of LT -> Less ; GT -> Greater
+relate t1@(Tip p1 bm1) t2@(Bin p2 m2 l2 r2)
+  | mixed t2 = combine_right (relate t1 r2)
+  | otherwise = case compare p1 p2 of LT -> Less ; GT -> Greater
+
+rel :: [Int] -> [Int] -> Relation
+rel [] [] = Equals ; rel [] ys = Prefix ; rel xs [] = FlipPrefix
+rel (x:xs) (y:ys) = case compare x y of LT -> Less ; EQ -> rel xs ys ; GT -> Greater
+
+-- | for testing:
+-- in Split xs ys, xs are increasing up to -1, ys are increasing from 1
+data Split = Split [Int] [Int] deriving Show
+
+prop_combine (Split l1 r1) (Split l2 r2) =
+  rel (l1 <> r1) (l2 <> r2) == combine (rel l1 l2) (rel r1 r2)
 
 combine :: Relation -> Relation -> Relation
 combine r eq = case r of
@@ -102,6 +119,37 @@ combine r eq = case r of
       Equals -> eq
       FlipPrefix -> Less
       Greater -> Greater
+
+prop_combine_left (Split l1 r1) (Split l2 _) = let r2 = [] in
+  rel (l1 <> r1) (l2 <> r2) == combine_left (rel l1 l2)
+
+combine_left :: Relation -> Relation
+combine_left r = case r of
+      Less -> Less
+      Prefix -> Greater
+      Equals -> FlipPrefix
+      FlipPrefix -> FlipPrefix
+      Greater -> Greater
+
+prop_combine_right (Split l1 _) (Split l2 r2) = let r1 = [] in
+  rel (l1 <> r1) (l2 <> r2) == combine_right (rel l1 l2)
+
+combine_right :: Relation -> Relation
+combine_right r = case r of
+      Less -> Less
+      Prefix -> Prefix
+      Equals -> Prefix
+      FlipPrefix -> Less
+      Greater -> Greater
+
+
+instance Listable Split where
+  tiers = mapT ( \ (bs,cs) ->
+                   Split (scanr (\ b a -> a - fromEnum b) (-1) (bs::[Bool]))
+                         (scanl (\ a c -> a + fromEnum c) ( 1) (cs::[Bool]))
+               ) tiers
+
+
 
 bmtol m = toList $ Tip 0 m
 
