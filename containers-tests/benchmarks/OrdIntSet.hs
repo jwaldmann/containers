@@ -240,8 +240,7 @@ det/hard/n=20                            time                 4.091 s
 newtype MyIntSet = My { ym :: IntSet } deriving (Semigroup, Monoid, Show, Eq)
 
 -- deriving instance Ord MyIntSet
-instance Ord MyIntSet where
-  compare (My a) (My b) = cis a b
+instance Ord MyIntSet where compare (My a) (My b) = cis a b
 
 det :: Sigma -> IntSet -> NFA -> DFA
 det sigma initial aut =
