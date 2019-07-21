@@ -42,6 +42,9 @@ test2 = do
   print (compare t1 t2, relate t1 t2)
   print (compare t1 l2, relate t1 l2)
 
+  putStrLn "lb" ; checkFor (10^5) prop_lb
+  putStrLn "ub" ; checkFor (10^5) prop_ub
+
   when False $ do
     putStrLn "combine"       ; checkFor (10^6) prop_combine
     putStrLn "combine_left"  ; checkFor (10^6) prop_combine_left
@@ -49,10 +52,11 @@ test2 = do
 
   forM_ [1, 10, 100] $ \ s -> do
     putStrLn $ "compare==cis (scaled by " <> show s <> ")"
-    checkFor (10^3) $ \ a0 b0 ->
+    checkFor (10^6) $ \ a0 b0 ->
       let a = IS.map (*s) a0
           b = IS.map (*s) b0
-      in compare a b == cis a b
+      in -- compare a b == cis a b
+         rel (toList a) (toList b) == relate a b
 
 instance Listable IntSet where
   tiers = mapT IS.fromList tiers
@@ -91,7 +95,21 @@ cis a b = case relate a b of
 
 -- | does the set contain both numbers >= 0 and numbers < 0 ?
 mixed :: IntSet -> Bool
-mixed (Bin p m l r) = m == (2 ^( wordSize -1 ))
+mixed (Bin p m l r) = m == bit ( wordSize -1 )
+
+prop_lb xs =
+  Prelude.null xs || let s = fromList xs ; l = lowerbound s in  all (l <=) xs
+prop_ub xs =
+  Prelude.null xs || let s = fromList xs ; u = upperbound s in  all (<= u) xs
+
+lowerbound :: IntSet -> Int
+lowerbound (Tip p _) = p
+lowerbound t@(Bin p m _ _) = if mixed t then m else p
+
+upperbound :: IntSet -> Int
+upperbound (Tip p _) = p + wordSize - 1
+upperbound t@(Bin p m _ _) =
+  if mixed t then complement (bit (wordSize - 1)) else p + m - 1
 
 {- nota bene:
 
@@ -109,6 +127,8 @@ relate :: IntSet -> IntSet -> Relation
 relate Nil Nil = Equals
 relate Nil t2 = Prefix
 relate t1 Nil = FlipPrefix
+relate t1 t2 | upperbound t1 < lowerbound t2 = Less
+relate t1 t2 | lowerbound t1 > upperbound t2 = Greater
 relate (Tip p1 bm1) (Tip p2 bm2) = case compare p1 p2 of
   LT -> Less
   EQ -> relateBM bm1 bm2
@@ -123,18 +143,13 @@ relate t1@(Bin p1 m1 l1 r1) t2@(Bin p2 m2 l2 r2)
   | otherwise = case compare p1 p2 of LT -> Less ; GT -> Greater
 relate t1@(Bin p1 m1 l1 r1) t2@(Tip p2 bm2)
   | mixed t1 = combine_left (relate r1 t2)
-  -- FIXME
-  | otherwise = case compare p1 p2 of
-      LT -> Less
-      EQ -> combine_left (relate l1 t2)
-      GT -> Greater
+  -- following is asymmetric since lex. order is not left-right sym.
+  | 0 == m1 .&. p2 = combine_left (relate l1 t2)
+  | otherwise = Less
 relate t1@(Tip p1 bm1) t2@(Bin p2 m2 l2 r2)
   | mixed t2 = combine_right (relate t1 r2)
-  -- FIXME (counterexample is note above)
-  | otherwise =  case compare p1 p2 of
-      LT -> Less
-      EQ -> combine_right (relate t1 l2)
-      GT -> Greater
+  | 0 == (p1 .&. m2) = combine_right (relate t1 l2)
+  | otherwise = Greater
 
 rel :: [Int] -> [Int] -> Relation
 rel [] [] = Equals ; rel [] ys = Prefix ; rel xs [] = FlipPrefix
