@@ -18,7 +18,7 @@ import Data.Maybe (catMaybes)
 import Data.Bits (shift, complement, (.&.), (.|.), xor, bit, countLeadingZeros)
 import Utils.Containers.Internal.BitUtil
 import Data.Monoid (Sum(..))
-import Control.Monad (guard, forM_)
+import Control.Monad (guard, forM_, when)
 import Test.LeanCheck
 import Test.LeanCheck.Utils.Types (unNat)
 import Gauge (bgroup, bench, defaultMain, whnf)
@@ -27,17 +27,32 @@ main = do
   defaultMain
     [ bgroup "det/hard" $ do
         n <- [1 .. 20]
-        return $ bench ("n=" <> show n)
-            $ whnf (IM.size . det0 2) $ hard_nfa n
+        return $ bgroup  ("n=" <> show n) $ do
+          delta <- take 5 $ iterate (*3) 1
+          return $ bench ("delta=" <> show delta)
+            $ whnf (IM.size . det0 2) $ hard_nfa delta n
     ]
 
 test2 = do
-  putStrLn "combine"       ; checkFor (10^6) prop_combine
-  putStrLn "combine_left"  ; checkFor (10^6) prop_combine_left
-  putStrLn "combine_right" ; checkFor (10^6) prop_combine_right
+  print $ shorter 64 0
+  let t1@(Tip p1 b1) = fromList [100]
+      t2@(Bin p2 m2 l2 r2) = fromList [100,200]
+  print (p1,b1)      
+  print (p2,m2,l2,r2)
+  print (compare t1 t2, relate t1 t2)
+  print (compare t1 l2, relate t1 l2)
 
-  putStrLn "compare==cis"
-  checkFor (10^6) $ \ a b -> compare a b == cis a b
+  when False $ do
+    putStrLn "combine"       ; checkFor (10^6) prop_combine
+    putStrLn "combine_left"  ; checkFor (10^6) prop_combine_left
+    putStrLn "combine_right" ; checkFor (10^6) prop_combine_right
+
+  forM_ [1, 10, 100] $ \ s -> do
+    putStrLn $ "compare==cis (scaled by " <> show s <> ")"
+    checkFor (10^3) $ \ a0 b0 ->
+      let a = IS.map (*s) a0
+          b = IS.map (*s) b0
+      in compare a b == cis a b
 
 instance Listable IntSet where
   tiers = mapT IS.fromList tiers
@@ -78,6 +93,18 @@ cis a b = case relate a b of
 mixed :: IntSet -> Bool
 mixed (Bin p m l r) = m == (2 ^( wordSize -1 ))
 
+{- nota bene:
+
+this example shows that the prefix can drop (from 64 to 0)
+while inserting a strictly larger number:
+
+fromList [100]     = Tip 64 (2^32)
+fromList [100,200] = Bin 0 128 (fromList [100]) (fromList [200])
+
+
+
+-}
+
 relate :: IntSet -> IntSet -> Relation
 relate Nil Nil = Equals
 relate Nil t2 = Prefix
@@ -96,10 +123,18 @@ relate t1@(Bin p1 m1 l1 r1) t2@(Bin p2 m2 l2 r2)
   | otherwise = case compare p1 p2 of LT -> Less ; GT -> Greater
 relate t1@(Bin p1 m1 l1 r1) t2@(Tip p2 bm2)
   | mixed t1 = combine_left (relate r1 t2)
-  | otherwise = case compare p1 p2 of LT -> Less ; GT -> Greater
+  -- FIXME
+  | otherwise = case compare p1 p2 of
+      LT -> Less
+      EQ -> combine_left (relate l1 t2)
+      GT -> Greater
 relate t1@(Tip p1 bm1) t2@(Bin p2 m2 l2 r2)
   | mixed t2 = combine_right (relate t1 r2)
-  | otherwise = case compare p1 p2 of LT -> Less ; GT -> Greater
+  -- FIXME (counterexample is note above)
+  | otherwise =  case compare p1 p2 of
+      LT -> Less
+      EQ -> combine_right (relate t1 l2)
+      GT -> Greater
 
 rel :: [Int] -> [Int] -> Relation
 rel [] [] = Equals ; rel [] ys = Prefix ; rel xs [] = FlipPrefix
@@ -186,7 +221,7 @@ intFromNat w = fromIntegral w
 -- evaluate this expression while typing:
 -- ghcid -W -Ttest benchmarks/OrdIntSet.hs 
 test = do
-  let a = hard_nfa 4
+  let a = hard_nfa 1 4
   print_nfa a
   print_dfa $ det0 2 a
 
@@ -204,6 +239,7 @@ print_dfa a = mapM_ putStrLn $ do
   
 
 newtype State = State Int deriving (Num, Enum)
+instance Show State where show (State s) = show s
 newtype Sigma = Sigma Int deriving (Num, Enum, Eq)
 
 -- | just the transistion system,
@@ -286,8 +322,11 @@ union_dfa a b = IM.unionWith (M.unionWith (error "WAT")) a b
 -- | for the language Sigma^* 1 Sigma^{n-2}  where Sigma={0,1}.
 -- this NFA has  n  states. DFA has 2^(n-1) states
 -- since it needs to remember the last n characters.
-hard_nfa :: Int -> NFA
-hard_nfa n = nfa
-  $ [ (0, 0, 0), (0,1,0), (0, 1, 1) ]
-  <> do k <- [1 .. State n - 2] ; c <- [0,1] ; return (k,c,k+1)
+-- Extra parameter delta: the automaton will use states [0, delta .. ]
+-- for IntSet, larger deltas should be harder,
+-- since for delta=1, all the states do fit in one Tip
+hard_nfa :: State -> Int -> NFA
+hard_nfa delta n = nfa
+  $ [ (0, 0, 0), (0,1,0), (0, 1, delta) ]
+  <> do k <- [1 .. State n - 2] ; c <- [0,1] ; return (delta * k,c,delta *(k+1))
 
