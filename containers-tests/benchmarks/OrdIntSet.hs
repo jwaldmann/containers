@@ -28,13 +28,19 @@ main = do
     [ bgroup "det/hard" $ do
         n <- [1 .. 20]
         return $ bgroup  ("n=" <> show n) $ do
-          delta <- take 5 $ iterate (*3) 1
+          delta <- take 6 $ iterate (*5) 1
           return $ bench ("delta=" <> show delta)
-            $ whnf (IM.size . det0 2) $ hard_nfa delta n
+            $ whnf (assertEq (2^n) . Main.size . det0 2) $ hard_nfa delta n
     ]
 
+assertEq x y =
+  if x == y then () else error $ unwords [ "assertEq", show x, show y ]
+
+-- evaluate this expression while typing:
+-- ghcid -W -Ttest2 benchmarks/OrdIntSet.hs
+
 test2 = do
-  print $ shorter 64 0
+  
   let t1@(Tip p1 b1) = fromList [100]
       t2@(Bin p2 m2 l2 r2) = fromList [100,200]
   print (p1,b1)      
@@ -51,7 +57,7 @@ test2 = do
     putStrLn "combine_left"  ; checkFor (10^6) prop_combine_left
     putStrLn "combine_right" ; checkFor (10^6) prop_combine_right
 
-  forM_ [1, 10, 100] $ \ s -> do
+  forM_ [1111, 111, 11, 1] $ \ s -> do
     putStrLn $ "compare==cis (scaled by " <> show s <> ")"
     checkFor (10^6) $ \ a0 b0 ->
       let a = IS.map (*s) a0
@@ -104,10 +110,12 @@ prop_ub xs =
   Prelude.null xs || let s = fromList xs ; u = upperbound s in  all (<= u) xs
 
 lowerbound :: IntSet -> Int
+{-# INLINE lowerbound #-}
 lowerbound (Tip p _) = p
 lowerbound t@(Bin p m _ _) = if mixed t then m else p
 
 upperbound :: IntSet -> Int
+{-# INLINE upperbound #-}
 upperbound (Tip p _) = p + wordSize - 1
 upperbound t@(Bin p m _ _) =
   if mixed t then complement (bit (wordSize - 1)) else p + m - 1
@@ -120,16 +128,12 @@ while inserting a strictly larger number:
 fromList [100]     = Tip 64 (2^32)
 fromList [100,200] = Bin 0 128 (fromList [100]) (fromList [200])
 
-
-
 -}
 
 relate :: IntSet -> IntSet -> Relation
 relate Nil Nil = Equals
 relate Nil t2 = Prefix
 relate t1 Nil = FlipPrefix
-relate t1 t2 | upperbound t1 < lowerbound t2 = Less
-relate t1 t2 | lowerbound t1 > upperbound t2 = Greater
 relate (Tip p1 bm1) (Tip p2 bm2) = case compare p1 p2 of
   LT -> Less
   EQ -> relateBM bm1 bm2
@@ -138,32 +142,51 @@ relate t1@(Bin p1 m1 l1 r1) t2@(Bin p2 m2 l2 r2)
   | mixed t1 && mixed t2 = combine (relate r1 r2) (relate l1 l2)
   | mixed t1 = combine_left (relate r1 t2)
   | mixed t2 = combine_right (relate t1 r2)
-  | m1 == m2 = combine (relate l1 l2) (relate r1 r2)
-  | shorter m1 m2 = combine_left (relate l1 t2)
-  | shorter m2 m1 = combine_right (relate t1 l2)
-  | otherwise = case compare p1 p2 of LT -> Less ; GT -> Greater
+  | otherwise = case compare (natFromInt m1) (natFromInt m2) of
+      GT -> combine_left (relate l1 t2)
+      EQ -> combine (relate l1 l2) (relate r1 r2)
+      LT -> combine_right (relate t1 l2)
 relate t1@(Bin p1 m1 l1 r1) t2@(Tip p2 bm2)
   | mixed t1 = combine_left (relate r1 t2)
-  -- following is asymmetric since lex. order is not left-right sym.
+  | upperbound t1 < lowerbound t2 = Less
+  | lowerbound t1 > upperbound t2 = Greater
   | 0 == m1 .&. p2 = combine_left (relate l1 t2)
   | otherwise = Less
 relate t1@(Tip p1 bm1) t2@(Bin p2 m2 l2 r2)
   | mixed t2 = combine_right (relate t1 r2)
+  | upperbound t1 < lowerbound t2 = Less
+  | lowerbound t1 > upperbound t2 = Greater
   | 0 == (p1 .&. m2) = combine_right (relate t1 l2)
   | otherwise = Greater
 
+
+
+-- | lexicographic comparison of lists.
+-- this is only used for testing.
 rel :: [Int] -> [Int] -> Relation
 rel [] [] = Equals ; rel [] ys = Prefix ; rel xs [] = FlipPrefix
 rel (x:xs) (y:ys) = case compare x y of LT -> Less ; EQ -> rel xs ys ; GT -> Greater
 
--- | for testing:
--- in Split xs ys, xs are increasing up to -1, ys are increasing from 1
+-- | for testing: in Split xs ys,
+-- xs are non-null and increasing up to -1
+-- ys are non-null and increasing from 1
+-- this models  (Bin _ _ xs ys)
 data Split = Split [Int] [Int] deriving Show
+
+instance Listable Split where
+  tiers = mapT ( \ (bs,cs) ->
+                   Split (scanr (\ b a -> a - fromEnum b) (-1) (bs::[Bool]))
+                         (scanl (\ a c -> a + fromEnum c) ( 1) (cs::[Bool]))
+               ) tiers
+
 
 prop_combine (Split l1 r1) (Split l2 r2) =
   rel (l1 <> r1) (l2 <> r2) == combine (rel l1 l2) (rel r1 r2)
 
+-- Note: it is important that this is lazy in the second argument
+-- (we want to avoid useless comparison of right subtrees)
 combine :: Relation -> Relation -> Relation
+{-# inline combine #-}
 combine r eq = case r of
       Less -> Less
       Prefix -> Greater
@@ -175,6 +198,7 @@ prop_combine_left (Split l1 r1) (Split l2 _) = let r2 = [] in
   rel (l1 <> r1) (l2 <> r2) == combine_left (rel l1 l2)
 
 combine_left :: Relation -> Relation
+{-# inline combine_left #-}
 combine_left r = case r of
       Less -> Less
       Prefix -> Greater
@@ -186,6 +210,7 @@ prop_combine_right (Split l1 _) (Split l2 r2) = let r1 = [] in
   rel (l1 <> r1) (l2 <> r2) == combine_right (rel l1 l2)
 
 combine_right :: Relation -> Relation
+{-# inline combine_right #-}
 combine_right r = case r of
       Less -> Less
       Prefix -> Prefix
@@ -194,33 +219,19 @@ combine_right r = case r of
       Greater -> Greater
 
 
-instance Listable Split where
-  tiers = mapT ( \ (bs,cs) ->
-                   Split (scanr (\ b a -> a - fromEnum b) (-1) (bs::[Bool]))
-                         (scanl (\ a c -> a + fromEnum c) ( 1) (cs::[Bool]))
-               ) tiers
-
-
-
-bmtol m = toList $ Tip 0 m
-
 relateBM :: BitMap -> BitMap -> Relation
+{-# inline relateBM #-}
 relateBM w1 w2 | w1 == w2 = Equals
-relateBM w1 w2 =    --  e.g.,  3=11 1=01
-  let delta = xor w1 w2  -- 2=10
-      lowest_diff_mask = delta .&. complement (delta-1) -- 10
+relateBM w1 w2 =
+  let delta = xor w1 w2
+      lowest_diff_mask = delta .&. complement (delta-1)
       prefix = (complement lowest_diff_mask + 1)
-            .&. (complement lowest_diff_mask)   -- 1..100
+            .&. (complement lowest_diff_mask)
   in  if 0 == lowest_diff_mask .&. w1
       then if 0 == w1 .&. prefix
            then Prefix else Greater
       else if 0 == w2 .&. prefix
            then FlipPrefix else Less
-
-shorter :: Mask -> Mask -> Bool
-shorter m1 m2
-  = (natFromInt m1) > (natFromInt m2)
-{-# INLINE shorter #-}
 
 -- A "Nat" is a natural machine word (an unsigned Int)
 type Nat = Word
@@ -229,14 +240,9 @@ natFromInt :: Int -> Nat
 natFromInt i = fromIntegral i
 {-# INLINE natFromInt #-}
 
-intFromNat :: Nat -> Int
-intFromNat w = fromIntegral w
-{-# INLINE intFromNat #-}
 
 
--- evaluate this expression while typing:
--- ghcid -W -Ttest benchmarks/OrdIntSet.hs 
-test = do
+test1 = do
   let a = hard_nfa 1 4
   print_nfa a
   print_dfa $ det0 2 a
@@ -291,8 +297,8 @@ det/hard/n=20                            time                 4.091 s
 
 newtype MyIntSet = My { ym :: IntSet } deriving (Semigroup, Monoid, Show, Eq)
 
--- deriving instance Ord MyIntSet
-instance Ord MyIntSet where compare (My a) (My b) = cis a b
+deriving instance Ord MyIntSet
+-- instance Ord MyIntSet where compare (My a) (My b) = cis a b
 
 det :: Sigma -> IntSet -> NFA -> DFA
 det sigma initial aut =
