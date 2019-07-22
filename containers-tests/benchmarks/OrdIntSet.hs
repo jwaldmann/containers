@@ -42,8 +42,9 @@ test2 = do
   print (compare t1 t2, relate t1 t2)
   print (compare t1 l2, relate t1 l2)
 
-  putStrLn "lb" ; checkFor (10^5) prop_lb
-  putStrLn "ub" ; checkFor (10^5) prop_ub
+  when False $ do
+    putStrLn "lb" ; checkFor (10^5) prop_lb
+    putStrLn "ub" ; checkFor (10^5) prop_ub
 
   when False $ do
     putStrLn "combine"       ; checkFor (10^6) prop_combine
@@ -137,7 +138,7 @@ relate t1@(Bin p1 m1 l1 r1) t2@(Bin p2 m2 l2 r2)
   | mixed t1 && mixed t2 = combine (relate r1 r2) (relate l1 l2)
   | mixed t1 = combine_left (relate r1 t2)
   | mixed t2 = combine_right (relate t1 r2)
-  | p1 == p2 = combine (relate l1 l2) (relate r1 r2)
+  | m1 == m2 = combine (relate l1 l2) (relate r1 r2)
   | shorter m1 m2 = combine_left (relate l1 t2)
   | shorter m2 m1 = combine_right (relate t1 l2)
   | otherwise = case compare p1 p2 of LT -> Less ; GT -> Greater
